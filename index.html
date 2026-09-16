@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Saaj's Wheel of Names</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f0f2f5;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+
+        .container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 30px;
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            align-items: flex-start;
+            justify-content: center;
+        }
+
+        .panels-wrapper {
+            display: flex;
+            gap: 15px;
+        }
+
+        .setup-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            width: 180px;
+        }
+
+        textarea {
+            width: 100%;
+            height: 200px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            resize: none;
+            box-sizing: border-box;
+            font-size: 14px;
+        }
+
+        #active-input {
+            background-color: #f8f9fa;
+            color: #495057;
+        }
+
+        .actions-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            width: 100%;
+            margin-top: 10px;
+        }
+
+        button {
+            border: none;
+            padding: 12px;
+            font-size: 14px;
+            font-weight: bold;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background 0.2s, transform 0.1s;
+        }
+
+        button:active {
+            transform: scale(0.98);
+        }
+
+        #spin-btn {
+            background-color: #2ed573;
+            color: white;
+            font-size: 16px;
+        }
+
+        #spin-btn:hover {
+            background-color: #26af5f;
+        }
+
+        #reset-btn {
+            background-color: #007bff;
+            color: white;
+        }
+
+        #reset-btn:hover {
+            background-color: #0056b3;
+        }
+
+        button:disabled {
+            background-color: #ccc !important;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .wheel-box {
+            position: relative;
+            display: inline-block;
+            align-self: center;
+        }
+
+        /* Pointer arrow on the right side */
+        .wheel-box::before {
+            content: '';
+            position: absolute;
+            right: -10px;
+            top: 50%;
+            transform: translateY(-50%);
+            z-index: 10;
+            width: 0;
+            height: 0;
+            border-top: 15px solid transparent;
+            border-bottom: 15px solid transparent;
+            border-right: 25px solid #ff4757;
+        }
+
+        canvas {
+            display: block;
+            border-radius: 50%;
+            box-shadow: 0 0 10px rgba(0,0,0,0.15);
+        }
+
+        #winner-display {
+            margin-top: 20px;
+            font-size: 24px;
+            font-weight: bold;
+            color: #ff4757;
+            min-height: 32px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>🎡 Saaj's Name Picker Wheel</h1>
+
+    <div class="container">
+        <div style="display: flex; flex-direction: column;">
+            <div class="panels-wrapper">
+                <!-- Master Entry Panel -->
+                <div class="setup-panel">
+                    <label for="master-input"><strong>1. Master List:</strong></label>
+                    <textarea id="master-input">Alice
+Bob
+Charlie
+Diana
+Ethan
+Fiona</textarea>
+                </div>
+
+                <!-- Live Active Panel -->
+                <div class="setup-panel">
+                    <label for="active-input"><strong>2. Remaining Slices:</strong></label>
+                    <textarea id="active-input" readonly></textarea>
+                </div>
+            </div>
+
+            <!-- Action buttons -->
+            <div class="actions-panel">
+                <button id="spin-btn">SPIN THE WHEEL</button>
+                <button id="reset-btn">🔄 Reset Active List</button>
+            </div>
+        </div>
+
+        <!-- Wheel Canvas layout -->
+        <div class="wheel-box">
+            <canvas id="wheel" width="400" height="400"></canvas>
+        </div>
+    </div>
+
+    <div id="winner-display"></div>
+
+    <script>
+        const canvas = document.getElementById('wheel');
+        const ctx = canvas.getContext('2d');
+        const masterInput = document.getElementById('master-input');
+        const activeInput = document.getElementById('active-input');
+        const spinBtn = document.getElementById('spin-btn');
+        const resetBtn = document.getElementById('reset-btn');
+        const winnerDisplay = document.getElementById('winner-display');
+
+        const colors = ['#ff4757', '#2ed573', '#1e90ff', '#ffa502', '#9b59b6', '#34495e', '#1abc9c', '#e67e22'];
+        let names = [];
+        
+        let startAngle = 0;
+        let arcSize = 0;
+        let spinTimeout = null;
+        let spinTime = 0;
+        const spinTimeTotal = 3000; // Strictly 3 seconds
+        let initialVelocity = 0;
+
+        // Render remaining list entries on canvas wheel slices
+        function drawWheel() {
+            names = activeInput.value.split('\n').map(name => name.trim()).filter(name => name !== '');
+            
+            if (names.length === 0) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.save();
+                ctx.fillStyle = "#aaa";
+                ctx.font = "16px Arial";
+                ctx.textAlign = "center";
+                ctx.fillText("No names remaining. Reset list!", canvas.width / 2, canvas.height / 2);
+                ctx.restore();
+                return;
+            }
+
+            const numSegments = names.length;
+            arcSize = (2 * Math.PI) / numSegments;
+            const radius = canvas.width / 2;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            for (let i = 0; i < numSegments; i++) {
+                const angle = startAngle + i * arcSize;
+                ctx.fillStyle = colors[i % colors.length];
+
+                ctx.beginPath();
+                ctx.moveTo(radius, radius);
+                ctx.arc(radius, radius, radius - 10, angle, angle + arcSize, false);
+                ctx.lineTo(radius, radius);
+                ctx.fill();
+
+                ctx.save();
+                ctx.fillStyle = "white";
+                ctx.font = "bold 16px Arial";
+                ctx.translate(radius, radius);
+                ctx.rotate(angle + arcSize / 2);
+                
+                let text = names[i];
+                if (text.length > 12) text = text.substring(0, 10) + '...';
+                
+                ctx.fillText(text, radius / 2, 6);
+                ctx.restore();
+            }
+
+            // Center pin cap
+            ctx.beginPath();
+            ctx.arc(radius, radius, 20, 0, 2 * Math.PI, false);
+            ctx.fillStyle = '#ffffff';
+            ctx.fill();
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = '#333333';
+            ctx.stroke();
+        }
+
+        // Populate active box from master list values
+        function syncMasterToActive() {
+            activeInput.value = masterInput.value;
+            drawWheel();
+        }
+
+        function easeOut(t, b, c, d) {
+            const ts = (t /= d) * t;
+            const tc = ts * t;
+            return b + c * (tc + -3 * ts + 3 * t);
+        }
+
+        function rotateWheel() {
+            spinTime += 30;
+            if (spinTime >= spinTimeTotal) {
+                stopRotateWheel();
+                return;
+            }
+            
+            const changeInAngle = easeOut(spinTime, initialVelocity, -initialVelocity, spinTimeTotal) * (Math.PI / 180);
+            startAngle += changeInAngle;
+            drawWheel();
+            spinTimeout = setTimeout(rotateWheel, 30);
+        }
+
+        function stopRotateWheel() {
+            clearTimeout(spinTimeout);
+            
+            const numSegments = names.length;
+            let degrees = (startAngle * 180) / Math.PI;
+            
+            let index = Math.floor((360 - (degrees % 360)) / (360 / numSegments));
+            index = (index + numSegments) % numSegments; 
+
+            const winner = names[index];
+            winnerDisplay.innerText = `🎉 Winner: ${winner}!`;
+
+            // Splice out the winner from active names array and update active textarea
+            names.splice(index, 1);
+            activeInput.value = names.join('\n');
+            
+            // Re-draw wheel layout to show slice removal instantly
+            drawWheel();
+
+            // Unlock execution buttons
+            spinBtn.disabled = false;
+            resetBtn.disabled = false;
+        }
+
+        spinBtn.addEventListener('click', () => {
+            // Check current active list length
+            if (names.length === 0) return;
+            
+            winnerDisplay.innerText = "";
+            spinBtn.disabled = true;
+            resetBtn.disabled = true; 
+            spinTime = 0;
+            
+            initialVelocity = Math.random() * 20 + 30; 
+            rotateWheel();
+        });
+
+        // Trigger hooks
+        resetBtn.addEventListener('click', syncMasterToActive);
+        masterInput.addEventListener('input', syncMasterToActive);
+
+        // INITIALIZATION FIX: Ensure data is populated before drawing the wheel canvas
+        window.addEventListener('DOMContentLoaded', () => {
+            syncMasterToActive();
+        });
+    </script>
+</body>
+</html>
